@@ -28,6 +28,8 @@ enum Command {
     Wages(SeriesArgs),
     /// Unemployment rate, aged 16 and over, seasonally adjusted % (monthly)
     Unemployment(SeriesArgs),
+    /// Economic inactivity rate, aged 16-64, seasonally adjusted % (monthly)
+    Inactivity(SeriesArgs),
 }
 
 #[derive(Args)]
@@ -59,6 +61,7 @@ enum SeriesKind {
     Rate,
     Wages,
     Unemployment,
+    Inactivity,
 }
 
 impl SeriesKind {
@@ -69,6 +72,7 @@ impl SeriesKind {
             SeriesKind::Rate => "rate",
             SeriesKind::Wages => "wages",
             SeriesKind::Unemployment => "unemployment",
+            SeriesKind::Inactivity => "inactivity",
         }
     }
 }
@@ -80,6 +84,10 @@ struct Row {
     /// 1-12 when the observation can be aligned to a calendar month
     month: Option<u32>,
     value: String,
+    /// Set for numeric sources (DBnomics, BoE) so displayed rows can be
+    /// re-formatted to uniform precision after filtering; None for ONS,
+    /// whose values arrive as already-formatted strings.
+    num: Option<f64>,
 }
 
 const GDP_URL: &str =
@@ -91,6 +99,8 @@ const WAGES_URL: &str =
 // MGSX: the series the original project brief mislabeled as GDP
 const UNEMPLOYMENT_URL: &str =
     "https://api.db.nomics.world/v22/series/ONS/LMS/MGSX.M?observations=1";
+const INACTIVITY_URL: &str =
+    "https://api.db.nomics.world/v22/series/ONS/LMS/LF2S.M?observations=1";
 const RATE_URL: &str = "https://www.bankofengland.co.uk/boeapps/iadb/fromshowcolumns.asp?csv.x=yes&Datefrom=01/Jan/1975&Dateto=now&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N";
 
 fn main() -> ExitCode {
@@ -110,6 +120,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Rate(args) => (args, SeriesKind::Rate),
         Command::Wages(args) => (args, SeriesKind::Wages),
         Command::Unemployment(args) => (args, SeriesKind::Unemployment),
+        Command::Inactivity(args) => (args, SeriesKind::Inactivity),
     };
 
     if let Some(target) = args.compare_to {
@@ -120,6 +131,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
     if let Some(since) = args.since {
         rows.retain(|r| r.year.is_some_and(|y| y >= since));
     }
+    finalize_values(&mut rows);
 
     match args.format {
         Format::Table => print_table(&title, &rows),
@@ -136,12 +148,16 @@ fn run_compare(args: &SeriesArgs, base: SeriesKind, target: SeriesKind) -> Resul
         return Err("gdp is quarterly; monthly comparison is not supported yet".into());
     }
 
-    let (_, base_rows) = fetch_series(base)?;
-    let (_, target_rows) = fetch_series(target)?;
-    let mut rows = align_monthly(&base_rows, &target_rows);
+    let (_, mut base_rows) = fetch_series(base)?;
+    let (_, mut target_rows) = fetch_series(target)?;
+    // filter before aligning so uniform precision reflects displayed rows only
     if let Some(since) = args.since {
-        rows.retain(|r| r.year >= since);
+        base_rows.retain(|r| r.year.is_some_and(|y| y >= since));
+        target_rows.retain(|r| r.year.is_some_and(|y| y >= since));
     }
+    finalize_values(&mut base_rows);
+    finalize_values(&mut target_rows);
+    let rows = align_monthly(&base_rows, &target_rows);
 
     match args.format {
         Format::Table => print_compare_table(base.name(), target.name(), &rows),
@@ -156,6 +172,7 @@ fn fetch_series(kind: SeriesKind) -> Result<(String, Vec<Row>), Box<dyn Error>> 
         SeriesKind::Inflation => fetch_ons("l55o", CPIH_URL),
         SeriesKind::Wages => fetch_dbnomics("kab9", WAGES_URL),
         SeriesKind::Unemployment => fetch_dbnomics("mgsx", UNEMPLOYMENT_URL),
+        SeriesKind::Inactivity => fetch_dbnomics("lf2s", INACTIVITY_URL),
         SeriesKind::Rate => fetch_rate(),
     }
 }
@@ -191,6 +208,7 @@ fn fetch_ons(cache_key: &str, url: &str) -> Result<(String, Vec<Row>), Box<dyn E
             year: o.year(),
             month: month_number(&o.month),
             value: o.value.clone(),
+            num: None,
         })
         .collect();
     Ok((title, rows))
@@ -210,13 +228,12 @@ fn fetch_dbnomics(cache_key: &str, url: &str) -> Result<(String, Vec<Row>), Box<
         .zip(&doc.value)
         .filter_map(|(period, value)| {
             let value = value.as_f64()?; // skip "NA" observations
-            let year = period.get(..4).and_then(|y| y.parse().ok());
-            let month = period.get(5..7).and_then(|m| m.parse().ok());
             Some(Row {
                 period: period.clone(),
-                year,
-                month,
+                year: period.get(..4).and_then(|y| y.parse().ok()),
+                month: period.get(5..7).and_then(|m| m.parse().ok()),
                 value: value.to_string(),
+                num: Some(value),
             })
         })
         .collect();
@@ -234,10 +251,34 @@ fn fetch_rate() -> Result<(String, Vec<Row>), Box<dyn Error>> {
                 month: date.map(|d| d.month()),
                 period: r.date,
                 value: r.value.to_string(),
+                num: Some(r.value),
             }
         })
         .collect();
     Ok(("Bank of England Bank Rate (%)".to_string(), rows))
+}
+
+/// Rewrites numeric rows to uniform decimal precision — the most decimal
+/// places any displayed value needs (4.9 and 5 -> "4.9"/"5.0", but
+/// all-integer series stay integer). ONS string rows pass through as-is.
+fn finalize_values(rows: &mut [Row]) {
+    let decimals = max_decimals(rows.iter().filter_map(|r| r.num));
+    for row in rows {
+        if let Some(n) = row.num {
+            row.value = format!("{n:.decimals$}");
+        }
+    }
+}
+
+fn max_decimals(values: impl Iterator<Item = f64>) -> usize {
+    values
+        .map(|v| {
+            let s = v.to_string();
+            s.find('.').map_or(0, |dot| s.len() - dot - 1)
+        })
+        .max()
+        .unwrap_or(0)
+        .min(4)
 }
 
 /// "January" / "May" -> 1 / 5. Empty or unrecognized -> None.
@@ -352,6 +393,7 @@ mod tests {
             year: Some(year),
             month,
             value: value.to_string(),
+            num: value.parse().ok(),
         }
     }
 
@@ -375,6 +417,20 @@ mod tests {
         assert_eq!(joined[1].period(), "2026-02");
         assert_eq!(joined[1].base, "747");
         assert_eq!(joined[1].target, "3.75");
+    }
+
+    #[test]
+    fn formats_series_to_uniform_precision() {
+        // mixed precision -> pad to the widest
+        assert_eq!(max_decimals([4.9, 5.0, 4.75].into_iter()), 2);
+        // all integers -> stay integer
+        assert_eq!(max_decimals([743.0, 754.0].into_iter()), 0);
+        // empty -> 0
+        assert_eq!(max_decimals(std::iter::empty()), 0);
+
+        let mut rows = vec![row(2026, Some(1), "4.9"), row(2026, Some(2), "5")];
+        finalize_values(&mut rows);
+        assert_eq!(rows[1].value, "5.0");
     }
 
     #[test]

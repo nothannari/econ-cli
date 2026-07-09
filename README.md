@@ -27,6 +27,7 @@ econ-cli <COMMAND> [--since <YEAR>] [--format <table|csv>]
 | `wages`     | Average weekly earnings, whole economy total pay (£)| monthly   |
 | `rate`      | Bank of England Bank Rate (%)                       | daily     |
 | `unemployment` | Unemployment rate, aged 16+, seasonally adj. (%) | monthly   |
+| `inactivity` | Economic inactivity rate, aged 16-64, seas. adj. (%) | monthly |
 
 - `--since 2020` — only observations from 2020 onwards
 - `--format csv` — machine-readable output instead of the default table
@@ -61,7 +62,12 @@ No API keys required for any of them.
 | Source | Used for | Endpoint |
 |--------|----------|----------|
 | [ONS website](https://www.ons.gov.uk) | `gdp` (ABMI), `inflation` (L55O) | `www.ons.gov.uk/{path}/timeseries/{cdid}/{dataset}/data` |
-| [DBnomics](https://db.nomics.world) | `wages` (KAB9), `unemployment` (MGSX) | `api.db.nomics.world/v22/series/ONS/LMS/{CDID}.M` |
+| [DBnomics](https://db.nomics.world) | `wages` (KAB9), `unemployment` (MGSX), `inactivity` (LF2S) | `api.db.nomics.world/v22/series/ONS/LMS/{CDID}.M` |
+
+> Labour-market caveat: LFS "monthly" observations are rolling three-month
+> averages, and unemployment follows the ILO definition (actively sought work
+> in the last 4 weeks, available within 2). People not seeking work — carers,
+> students, long-term sick — are counted by `inactivity`, not `unemployment`.
 | [Bank of England IADB](https://www.bankofengland.co.uk/boeapps/database) | `rate` (IUDBEDR) | CSV export endpoint |
 
 > **Note:** the old ONS API (`api.ons.gov.uk`) was retired in November 2024.
