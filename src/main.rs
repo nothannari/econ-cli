@@ -26,6 +26,8 @@ enum Command {
     Rate(SeriesArgs),
     /// Average weekly earnings, whole economy total pay £ (monthly)
     Wages(SeriesArgs),
+    /// Unemployment rate, aged 16 and over, seasonally adjusted % (monthly)
+    Unemployment(SeriesArgs),
 }
 
 #[derive(Args)]
@@ -56,6 +58,7 @@ enum SeriesKind {
     Inflation,
     Rate,
     Wages,
+    Unemployment,
 }
 
 impl SeriesKind {
@@ -65,6 +68,7 @@ impl SeriesKind {
             SeriesKind::Inflation => "inflation",
             SeriesKind::Rate => "rate",
             SeriesKind::Wages => "wages",
+            SeriesKind::Unemployment => "unemployment",
         }
     }
 }
@@ -84,6 +88,9 @@ const CPIH_URL: &str =
     "https://www.ons.gov.uk/economy/inflationandpriceindices/timeseries/l55o/mm23/data";
 const WAGES_URL: &str =
     "https://api.db.nomics.world/v22/series/ONS/LMS/KAB9.M?observations=1";
+// MGSX: the series the original project brief mislabeled as GDP
+const UNEMPLOYMENT_URL: &str =
+    "https://api.db.nomics.world/v22/series/ONS/LMS/MGSX.M?observations=1";
 const RATE_URL: &str = "https://www.bankofengland.co.uk/boeapps/iadb/fromshowcolumns.asp?csv.x=yes&Datefrom=01/Jan/1975&Dateto=now&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N";
 
 fn main() -> ExitCode {
@@ -102,6 +109,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Command::Inflation(args) => (args, SeriesKind::Inflation),
         Command::Rate(args) => (args, SeriesKind::Rate),
         Command::Wages(args) => (args, SeriesKind::Wages),
+        Command::Unemployment(args) => (args, SeriesKind::Unemployment),
     };
 
     if let Some(target) = args.compare_to {
@@ -146,7 +154,8 @@ fn fetch_series(kind: SeriesKind) -> Result<(String, Vec<Row>), Box<dyn Error>> 
     match kind {
         SeriesKind::Gdp => fetch_ons("abmi", GDP_URL),
         SeriesKind::Inflation => fetch_ons("l55o", CPIH_URL),
-        SeriesKind::Wages => fetch_wages(),
+        SeriesKind::Wages => fetch_dbnomics("kab9", WAGES_URL),
+        SeriesKind::Unemployment => fetch_dbnomics("mgsx", UNEMPLOYMENT_URL),
         SeriesKind::Rate => fetch_rate(),
     }
 }
@@ -187,8 +196,8 @@ fn fetch_ons(cache_key: &str, url: &str) -> Result<(String, Vec<Row>), Box<dyn E
     Ok((title, rows))
 }
 
-fn fetch_wages() -> Result<(String, Vec<Row>), Box<dyn Error>> {
-    let body = fetch_cached("kab9", "json", WAGES_URL)?;
+fn fetch_dbnomics(cache_key: &str, url: &str) -> Result<(String, Vec<Row>), Box<dyn Error>> {
+    let body = fetch_cached(cache_key, "json", url)?;
     let resp: dbnomics::DbnomicsResponse = serde_json::from_str(&body)?;
     let doc = resp
         .series

@@ -26,6 +26,7 @@ econ-cli <COMMAND> [--since <YEAR>] [--format <table|csv>]
 | `inflation` | CPIH annual rate, all items                         | monthly   |
 | `wages`     | Average weekly earnings, whole economy total pay (£)| monthly   |
 | `rate`      | Bank of England Bank Rate (%)                       | daily     |
+| `unemployment` | Unemployment rate, aged 16+, seasonally adj. (%) | monthly   |
 
 - `--since 2020` — only observations from 2020 onwards
 - `--format csv` — machine-readable output instead of the default table
@@ -60,7 +61,7 @@ No API keys required for any of them.
 | Source | Used for | Endpoint |
 |--------|----------|----------|
 | [ONS website](https://www.ons.gov.uk) | `gdp` (ABMI), `inflation` (L55O) | `www.ons.gov.uk/{path}/timeseries/{cdid}/{dataset}/data` |
-| [DBnomics](https://db.nomics.world) | `wages` (KAB9) | `api.db.nomics.world/v22/series/ONS/LMS/KAB9.M` |
+| [DBnomics](https://db.nomics.world) | `wages` (KAB9), `unemployment` (MGSX) | `api.db.nomics.world/v22/series/ONS/LMS/{CDID}.M` |
 | [Bank of England IADB](https://www.bankofengland.co.uk/boeapps/database) | `rate` (IUDBEDR) | CSV export endpoint |
 
 > **Note:** the old ONS API (`api.ons.gov.uk`) was retired in November 2024.
