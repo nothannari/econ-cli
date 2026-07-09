@@ -37,6 +37,11 @@ struct SeriesArgs {
     /// Output format
     #[arg(long, value_enum, default_value_t = Format::Table)]
     format: Format,
+
+    /// Show another series alongside, aligned on months
+    /// (daily data is collapsed to its month-end value)
+    #[arg(long, value_enum, value_name = "SERIES")]
+    compare_to: Option<SeriesKind>,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -45,10 +50,31 @@ enum Format {
     Csv,
 }
 
+#[derive(Copy, Clone, PartialEq, ValueEnum)]
+enum SeriesKind {
+    Gdp,
+    Inflation,
+    Rate,
+    Wages,
+}
+
+impl SeriesKind {
+    fn name(self) -> &'static str {
+        match self {
+            SeriesKind::Gdp => "gdp",
+            SeriesKind::Inflation => "inflation",
+            SeriesKind::Rate => "rate",
+            SeriesKind::Wages => "wages",
+        }
+    }
+}
+
 /// One observation, normalized across the three sources.
 struct Row {
     period: String,
     year: Option<i32>,
+    /// 1-12 when the observation can be aligned to a calendar month
+    month: Option<u32>,
     value: String,
 }
 
@@ -71,25 +97,18 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
-    let (args, title, mut rows) = match &cli.command {
-        Command::Gdp(args) => {
-            let (title, rows) = fetch_ons("abmi", GDP_URL)?;
-            (args, title, rows)
-        }
-        Command::Inflation(args) => {
-            let (title, rows) = fetch_ons("l55o", CPIH_URL)?;
-            (args, title, rows)
-        }
-        Command::Wages(args) => {
-            let (title, rows) = fetch_wages()?;
-            (args, title, rows)
-        }
-        Command::Rate(args) => {
-            let (title, rows) = fetch_rate()?;
-            (args, title, rows)
-        }
+    let (args, kind) = match &cli.command {
+        Command::Gdp(args) => (args, SeriesKind::Gdp),
+        Command::Inflation(args) => (args, SeriesKind::Inflation),
+        Command::Rate(args) => (args, SeriesKind::Rate),
+        Command::Wages(args) => (args, SeriesKind::Wages),
     };
 
+    if let Some(target) = args.compare_to {
+        return run_compare(args, kind, target);
+    }
+
+    let (title, mut rows) = fetch_series(kind)?;
     if let Some(since) = args.since {
         rows.retain(|r| r.year.is_some_and(|y| y >= since));
     }
@@ -99,6 +118,37 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         Format::Csv => write_csv(&rows)?,
     }
     Ok(())
+}
+
+fn run_compare(args: &SeriesArgs, base: SeriesKind, target: SeriesKind) -> Result<(), Box<dyn Error>> {
+    if base == target {
+        return Err("cannot compare a series with itself".into());
+    }
+    if base == SeriesKind::Gdp || target == SeriesKind::Gdp {
+        return Err("gdp is quarterly; monthly comparison is not supported yet".into());
+    }
+
+    let (_, base_rows) = fetch_series(base)?;
+    let (_, target_rows) = fetch_series(target)?;
+    let mut rows = align_monthly(&base_rows, &target_rows);
+    if let Some(since) = args.since {
+        rows.retain(|r| r.year >= since);
+    }
+
+    match args.format {
+        Format::Table => print_compare_table(base.name(), target.name(), &rows),
+        Format::Csv => write_compare_csv(base.name(), target.name(), &rows)?,
+    }
+    Ok(())
+}
+
+fn fetch_series(kind: SeriesKind) -> Result<(String, Vec<Row>), Box<dyn Error>> {
+    match kind {
+        SeriesKind::Gdp => fetch_ons("abmi", GDP_URL),
+        SeriesKind::Inflation => fetch_ons("l55o", CPIH_URL),
+        SeriesKind::Wages => fetch_wages(),
+        SeriesKind::Rate => fetch_rate(),
+    }
 }
 
 /// Returns the response body for `url`, from the local cache when fresh.
@@ -130,6 +180,7 @@ fn fetch_ons(cache_key: &str, url: &str) -> Result<(String, Vec<Row>), Box<dyn E
         .map(|o| Row {
             period: o.date.clone(),
             year: o.year(),
+            month: month_number(&o.month),
             value: o.value.clone(),
         })
         .collect();
@@ -151,9 +202,11 @@ fn fetch_wages() -> Result<(String, Vec<Row>), Box<dyn Error>> {
         .filter_map(|(period, value)| {
             let value = value.as_f64()?; // skip "NA" observations
             let year = period.get(..4).and_then(|y| y.parse().ok());
+            let month = period.get(5..7).and_then(|m| m.parse().ok());
             Some(Row {
                 period: period.clone(),
                 year,
+                month,
                 value: value.to_string(),
             })
         })
@@ -165,13 +218,94 @@ fn fetch_rate() -> Result<(String, Vec<Row>), Box<dyn Error>> {
     let body = fetch_cached("iudbedr", "csv", RATE_URL)?;
     let rows = boe::parse(&body)?
         .into_iter()
-        .map(|r| Row {
-            year: r.date().map(|d| d.year()),
-            period: r.date,
-            value: r.value.to_string(),
+        .map(|r| {
+            let date = r.date();
+            Row {
+                year: date.map(|d| d.year()),
+                month: date.map(|d| d.month()),
+                period: r.date,
+                value: r.value.to_string(),
+            }
         })
         .collect();
     Ok(("Bank of England Bank Rate (%)".to_string(), rows))
+}
+
+/// "January" / "May" -> 1 / 5. Empty or unrecognized -> None.
+fn month_number(name: &str) -> Option<u32> {
+    chrono::NaiveDate::parse_from_str(&format!("01 {name} 2000"), "%d %B %Y")
+        .ok()
+        .map(|d| d.month())
+}
+
+/// One month present in both series.
+struct ComparedRow {
+    year: i32,
+    month: u32,
+    base: String,
+    target: String,
+}
+
+impl ComparedRow {
+    fn period(&self) -> String {
+        format!("{}-{:02}", self.year, self.month)
+    }
+}
+
+/// Joins two series on calendar month, keeping months present in both.
+/// Multiple observations in one month (daily data) collapse to the last one.
+fn align_monthly(base: &[Row], target: &[Row]) -> Vec<ComparedRow> {
+    use std::collections::{BTreeMap, HashMap};
+
+    let mut target_by_month = HashMap::new();
+    for r in target {
+        if let (Some(y), Some(m)) = (r.year, r.month) {
+            target_by_month.insert((y, m), r.value.clone());
+        }
+    }
+    let mut base_by_month = BTreeMap::new();
+    for r in base {
+        if let (Some(y), Some(m)) = (r.year, r.month) {
+            base_by_month.insert((y, m), r.value.clone());
+        }
+    }
+    base_by_month
+        .into_iter()
+        .filter_map(|((year, month), base)| {
+            let target = target_by_month.get(&(year, month))?.clone();
+            Some(ComparedRow { year, month, base, target })
+        })
+        .collect()
+}
+
+fn print_compare_table(base_name: &str, target_name: &str, rows: &[ComparedRow]) {
+    println!("{base_name} vs {target_name}");
+    println!();
+    let base_header = base_name.to_uppercase();
+    let base_width = rows
+        .iter()
+        .map(|r| r.base.len())
+        .max()
+        .unwrap_or(0)
+        .max(base_header.len());
+    println!("{:<7}  {:<base_width$}  {}", "PERIOD", base_header, target_name.to_uppercase());
+    for row in rows {
+        println!("{:<7}  {:<base_width$}  {}", row.period(), row.base, row.target);
+    }
+}
+
+fn write_compare_csv(
+    base_name: &str,
+    target_name: &str,
+    rows: &[ComparedRow],
+) -> Result<(), Box<dyn Error>> {
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    writer.write_record(["period", base_name, target_name])?;
+    for row in rows {
+        writer.write_record([&row.period(), &row.base, &row.target])?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 fn print_table(title: &str, rows: &[Row]) {
@@ -197,4 +331,47 @@ fn write_csv(rows: &[Row]) -> Result<(), Box<dyn Error>> {
     }
     writer.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(year: i32, month: Option<u32>, value: &str) -> Row {
+        Row {
+            period: String::new(),
+            year: Some(year),
+            month,
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn aligns_on_shared_months_and_collapses_dailies() {
+        let base = vec![
+            row(2026, Some(1), "740"),
+            row(2026, Some(2), "747"),
+            row(2026, Some(3), "754"),
+        ];
+        // daily-style target: two observations in Feb -> last one wins; no March
+        let target = vec![
+            row(2026, Some(2), "4.0"),
+            row(2026, Some(2), "3.75"),
+            row(2026, Some(1), "4.0"),
+            row(2026, None, "9.9"), // not monthly-alignable -> ignored
+        ];
+        let joined = align_monthly(&base, &target);
+        assert_eq!(joined.len(), 2);
+        assert_eq!(joined[0].period(), "2026-01");
+        assert_eq!(joined[1].period(), "2026-02");
+        assert_eq!(joined[1].base, "747");
+        assert_eq!(joined[1].target, "3.75");
+    }
+
+    #[test]
+    fn parses_ons_month_names() {
+        assert_eq!(month_number("January"), Some(1));
+        assert_eq!(month_number("May"), Some(5));
+        assert_eq!(month_number(""), None);
+    }
 }

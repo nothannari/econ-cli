@@ -29,6 +29,20 @@ econ-cli <COMMAND> [--since <YEAR>] [--format <table|csv>]
 
 - `--since 2020` — only observations from 2020 onwards
 - `--format csv` — machine-readable output instead of the default table
+- `--compare-to <SERIES>` — show another series alongside, aligned on calendar
+  months (daily data collapses to its month-end value). `gdp` is quarterly and
+  can't take part yet.
+
+```
+$ econ-cli wages --compare-to inflation --since 2026
+wages vs inflation
+
+PERIOD   WAGES  INFLATION
+2026-01  743    3.2
+2026-02  747    3.2
+2026-03  754    3.4
+2026-04  753    3.0
+```
 
 ```
 $ econ-cli gdp --since 2025 --format csv
