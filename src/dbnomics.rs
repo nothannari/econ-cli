@@ -21,21 +21,16 @@ pub struct DbnomicsResponse {
 #[derive(Debug, Deserialize)]
 pub struct SeriesPage {
     pub docs: Vec<SeriesDoc>,
-    pub num_found: u64,
 }
 
+/// Only the fields the app reads; the response also carries @frequency,
+/// provider/dataset/series codes, and period_start_day (ISO dates, useful
+/// if period-string parsing ever stops being enough).
 #[derive(Debug, Deserialize)]
 pub struct SeriesDoc {
-    #[serde(rename = "@frequency")]
-    pub frequency: String,
-    pub provider_code: String,
-    pub dataset_code: String,
-    pub series_code: String,
     pub series_name: String,
     /// "2026-05" (monthly), "2026-Q1" (quarterly), "2026" (annual)
     pub period: Vec<String>,
-    /// ISO dates, one per period; parse these with chrono
-    pub period_start_day: Vec<String>,
     pub value: Vec<Value>,
 }
 
@@ -44,7 +39,8 @@ pub struct SeriesDoc {
 #[serde(untagged)]
 pub enum Value {
     Number(f64),
-    Text(String),
+    // the string ("NA") is needed as a deserialization target but never read
+    Text(#[allow(dead_code)] String),
 }
 
 impl Value {
@@ -64,11 +60,10 @@ mod tests {
     fn deserializes_wages_series() {
         let json = include_str!("../samples/dbnomics_kab9_wages.json");
         let resp: DbnomicsResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.series.num_found, 1);
+        assert_eq!(resp.series.docs.len(), 1);
         let doc = &resp.series.docs[0];
-        assert_eq!(doc.series_code, "KAB9.M");
+        assert!(doc.series_name.starts_with("AWE"));
         assert_eq!(doc.period.len(), doc.value.len());
-        assert_eq!(doc.period.len(), doc.period_start_day.len());
         // early observations are "NA", recent ones are numbers
         assert!(doc.value[0].as_f64().is_none());
         assert!(doc.value.last().unwrap().as_f64().is_some());

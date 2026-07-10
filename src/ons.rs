@@ -27,21 +27,17 @@ pub struct SeriesResponse {
     pub months: Vec<Observation>,
 }
 
+/// Only the fields the app reads; the response also carries cdid,
+/// datasetId, releaseDate, nextRelease, and contact details.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Description {
     pub title: String,
-    pub cdid: String,
-    pub dataset_id: String,
     /// e.g. "%" for CPIH annual rate; empty for GDP £m (see `pre_unit`)
     #[serde(default)]
     pub unit: String,
     #[serde(default)]
     pub pre_unit: String,
-    #[serde(default)]
-    pub release_date: String,
-    #[serde(default)]
-    pub next_release: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,12 +47,10 @@ pub struct Observation {
     /// numeric value as a string, e.g. "709598" or "3.0"
     pub value: String,
     pub year: String,
-    /// "May" for monthly series, "" otherwise
+    /// "May" for monthly series, "" otherwise (quarterlies get a
+    /// "quarter" field instead, e.g. "Q1")
     #[serde(default)]
     pub month: String,
-    /// "Q1" for quarterly series, "" otherwise
-    #[serde(default)]
-    pub quarter: String,
 }
 
 impl SeriesResponse {
@@ -76,10 +70,6 @@ impl Observation {
     pub fn year(&self) -> Option<i32> {
         self.year.parse().ok()
     }
-
-    pub fn value(&self) -> Option<f64> {
-        self.value.parse().ok()
-    }
 }
 
 #[cfg(test)]
@@ -90,21 +80,21 @@ mod tests {
     fn deserializes_quarterly_gdp() {
         let json = include_str!("../samples/abmi_gdp.json");
         let series: SeriesResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(series.description.cdid, "ABMI");
+        assert!(series.description.title.starts_with("Gross Domestic Product"));
         assert!(series.months.is_empty());
         assert!(!series.quarters.is_empty());
         let obs = &series.observations()[0];
         assert!(obs.year().is_some());
-        assert!(obs.value().is_some());
+        assert!(obs.value.parse::<f64>().is_ok());
     }
 
     #[test]
     fn deserializes_monthly_cpih() {
         let json = include_str!("../samples/l55o_cpih.json");
         let series: SeriesResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(series.description.cdid, "L55O");
+        assert!(series.description.title.starts_with("CPIH"));
         assert_eq!(series.description.unit, "%");
         assert!(!series.months.is_empty());
-        assert_eq!(series.observations()[0].quarter, "");
+        assert_eq!(series.observations()[0].month, "January");
     }
 }
