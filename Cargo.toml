@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "UK macroeconomic data (GDP, inflation, wages, Bank Rate) in your terminal"
-repository = "https://github.com/nothannari/econ-cli"
+repository = "https://github.com/dharimarzouq/econ-cli"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
