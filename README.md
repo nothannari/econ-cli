@@ -87,3 +87,9 @@ older than 24 hours. Delete the directory to force a refresh.
 cargo build --release
 cargo test          # deserialization tests run against real captured responses in samples/
 ```
+
+Contributions welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)
