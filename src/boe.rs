@@ -7,7 +7,7 @@
 //! e.g. Bank Rate: SeriesCodes=IUDBEDR
 //!
 //! Gotchas for the reqwest call:
-//! - the server 302-redirects to _iadb-FromShowColumns.asp — reqwest follows
+//! - the server 302-redirects to _iadb-FromShowColumns.asp; reqwest follows
 //!   redirects by default, so this is fine, but don't disable it
 //! - a browser-ish User-Agent is required; the default/no UA gets rejected
 //!

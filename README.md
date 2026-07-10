@@ -29,9 +29,9 @@ econ-cli <COMMAND> [--since <YEAR>] [--format <table|csv>]
 | `unemployment` | Unemployment rate, aged 16+, seasonally adj. (%) | monthly   |
 | `inactivity` | Economic inactivity rate, aged 16-64, seas. adj. (%) | monthly |
 
-- `--since 2020` — only observations from 2020 onwards
-- `--format csv` — machine-readable output instead of the default table
-- `--compare-to <SERIES>` — show another series alongside, aligned on calendar
+- `--since 2020` shows only observations from 2020 onwards
+- `--format csv` gives machine-readable output instead of the default table
+- `--compare-to <SERIES>` shows another series alongside, aligned on calendar
   months (daily data collapses to its month-end value). `gdp` is quarterly and
   can't take part yet.
 
@@ -66,8 +66,9 @@ No API keys required for any of them.
 
 > Labour-market caveat: LFS "monthly" observations are rolling three-month
 > averages, and unemployment follows the ILO definition (actively sought work
-> in the last 4 weeks, available within 2). People not seeking work — carers,
-> students, long-term sick — are counted by `inactivity`, not `unemployment`.
+> in the last 4 weeks, available within 2). People not seeking work, such as
+> carers, students and the long-term sick, are counted by `inactivity`, not
+> `unemployment`.
 | [Bank of England IADB](https://www.bankofengland.co.uk/boeapps/database) | `rate` (IUDBEDR) | CSV export endpoint |
 
 > **Note:** the old ONS API (`api.ons.gov.uk`) was retired in November 2024.

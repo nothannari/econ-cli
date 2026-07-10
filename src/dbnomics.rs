@@ -7,7 +7,7 @@
 //! Shape notes:
 //! - observations live in parallel arrays `period` / `period_start_day` / `value`
 //! - `period` is frequency-formatted ("2026-05", "2026-Q1"); `period_start_day`
-//!   is always an ISO date — use that one with chrono
+//!   is always an ISO date, so use that one with chrono
 //! - `value` entries are EITHER a JSON number or the literal string "NA"
 //!   for missing observations, hence the untagged enum
 
@@ -34,7 +34,7 @@ pub struct SeriesDoc {
     pub series_name: String,
     /// "2026-05" (monthly), "2026-Q1" (quarterly), "2026" (annual)
     pub period: Vec<String>,
-    /// ISO dates, one per period — parse these with chrono
+    /// ISO dates, one per period; parse these with chrono
     pub period_start_day: Vec<String>,
     pub value: Vec<Value>,
 }

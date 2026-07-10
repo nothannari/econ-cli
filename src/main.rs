@@ -258,7 +258,7 @@ fn fetch_rate() -> Result<(String, Vec<Row>), Box<dyn Error>> {
     Ok(("Bank of England Bank Rate (%)".to_string(), rows))
 }
 
-/// Rewrites numeric rows to uniform decimal precision — the most decimal
+/// Rewrites numeric rows to uniform decimal precision: the most decimal
 /// places any displayed value needs (4.9 and 5 -> "4.9"/"5.0", but
 /// all-integer series stay integer). ONS string rows pass through as-is.
 fn finalize_values(rows: &mut [Row]) {
